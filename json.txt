@@ -1,0 +1,6 @@
+     //publish
+      String data = String("{\"sensor_id\" : \"" + sensorID +
+       "\", \"analog\": \""+  readAnalogStr  
+        + "\", \"temp\": \"" +  tempStr 
+        + "\", \"hum\": \"" +  humStr
+        + "\"}" );

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="kr" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" th:href="@{/css/common.css}" type="text/css">
+
+    <title>Ssamssara Status Monitor</title>
+
+
+    <script src="https://code.jquery.com/jquery-3.7.0.js"
+            integrity="sha256-JlqSTELeR4TLqP0OG9dxM7yDPqX1ox/HfgiSLBj8+kM="
+            crossorigin="anonymous">
+
+    </script>
+
+    <script type="text/javascript"
+            src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.2/mqttws31.js">
+
+    </script>
+    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script> -->
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+
+    <script src="./mqtt.js"></script>
+    <script>
+        let myChart = null;
+
+        document.addEventListener("DOMContentLoaded", function ()
+        {
+            const labelList = [
+                "init"
+            ];
+
+            const dataList = [
+                0
+            ];
+
+            const dataConfig = {
+                labels: labelList,
+                datasets: [{
+                    label: '대기온도',
+                    backgroundColor: 'rgb(255, 0, 0)',
+                    borderColor: 'rgb(255, 0, 0)',
+                    data: dataList
+                }]
+            };
+
+            const config = {
+                type: 'line',
+                data: dataConfig,
+                options: {
+                    responsive: false,
+                    scale: {
+                        beginAtZero: false,
+                        max: 50,
+                        stepSize: 1,
+                    }
+                }
+            };
+
+
+            const chartCanvas = document.getElementById('myChart');
+
+
+            myChart = new Chart(
+                chartCanvas,
+                config
+            );
+
+            
+        });
+        
+
+        function addData(chartArea, temp, labelData)
+        {
+            const dataList = chartArea.data;
+            const labelList = chartArea.data.labels;
+
+            if (dataList.datasets[0].data.length > 50)
+            {
+                dataList.datasets[0].data.shift();
+                labelList.shift();
+            }
+            labelList.push(temp);
+            dataList.datasets[0].data.push(temp);
+
+            chartArea.update();
+        }
+    </script>
+    <script>
+
+        $( document ).ready(function() {
+            console.log( "ready!" );
+            StartMqtt();
+        });
+    </script>
+</head>
+<body>
+<header th:insert="~{common/header.html}"></header>
+<h1>Ssamssara 모니터링</h1>
+
+<div>
+    <canvas id="myChart" width="1000" height="400"></canvas>
+</div>
+
+<footer th:insert="~{common/footer.html}"></footer>
+</body>
+</html>

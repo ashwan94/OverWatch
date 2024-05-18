@@ -7,8 +7,8 @@
 void setMQTT();
 
 // WiFi 접속을 위한 세팅
-const char* ssid = "next1";            // WiFi 이름
-const char* password = "next18850";  // WiFi 비밀번호
+const char* ssid = "AN";            // WiFi 이름
+const char* password = "49920038";  // WiFi 비밀번호
 
 // UTC data 받기 위한 세팅
 char curTime[20];
@@ -61,7 +61,7 @@ void setup() {
   Serial.begin(115200);
   WiFi.begin(ssid, password);
   Serial.println();
-  Serial.println("WiFI 연결 확인");
+  Serial.println("WiFI 연결 요청");
 
   // WiFi 연결될때까지 시도
   while (WiFi.status() != WL_CONNECTED) {
@@ -218,7 +218,7 @@ void get_fineDust() {
   }
 }
 
-void showLED(){
+void showLED() {
   Serial.println("LED 에 출력할 data");
   Serial.println("수신된 날짜 data : " + utcDate);
   Serial.println("수신된 시간 data : " + utcTime);
@@ -265,12 +265,15 @@ void loop() {
     // 00:31 에 시도했더니 null 값으로 return 된다. 00:33 으로 하니 해결됨
     // + 미세먼지는 1일 기준이므로 기상청 API 를 요청할때 1번만 data 를 가져오도록 함
     if (second == "30"
-        && minute == "31"
-        && (hour == "00" || hour == "05" || hour == "10" || hour == "15" || hour == "20")) {  // 00, 05, 10, 15, 20시에만 API 호출
-      base_time = String("&base_time=") + hour + minute;
+        && (minute == "20" || minute == "21" || minute == "22" || minute == "23")
+        && (hour == "00" || hour == "05" || hour == "12" || hour == "15" || hour == "20")) {  // 00, 05, 10, 15, 20시에만 API 호출
+      base_time = String("&base_time=") + "11" + minute;
       Serial.println("기상청, 에어코리아 API 요청 -> " + hour + "시 " + minute + "분 " + second + "초");
-
       workJson["apiReqTime"] = hour + minute + second;
+
+      // MQTT 세팅
+      setupMQTT();
+      reconnect();
 
       // Open API 요청
       get_weather();
@@ -284,11 +287,33 @@ void loop() {
       mqttData.add(weatherData);
       mqttData.add(fineDustData);
 
-      for (String data : mqttData) {
-        Serial.println(data);
+      // mqttData 내용 확인하기
+      // for (String data : mqttData) {
+      //   Serial.println(data);
+      // }
+
+      // MQTT server 전송을 위한 Serialization
+      String output = "";
+      serializeJson(mqttData, output);
+      Serial.println("직렬화 결과값");
+      Serial.println(output);
+      Serial.println(output.length()); // 434 return 되는거 봐서 직렬화는 잘 되었다
+
+      // MQTT 로 모든 data 전송
+      if (WiFi.status() == WL_CONNECTED && pubClient.connected()) {
+        String sensorID = "OverWatch";
+        String data = String("{\"sensorID\" : \"" + sensorID
+                             + "\", \"datas\" : \"" + output + "\"}");
+        String rootTopic = "/IoT/Sensor/2ndClass/" + sensorID;
+
+        publish(rootTopic, data);
+
+        // String test = "테스트";
+        // publish(rootTopic, test);
+
+        mqttData.clear();
       }
 
-      mqttData.clear();
 
 
       // TODO
@@ -296,12 +321,13 @@ void loop() {
       // return mqttData;
 
       // 2. LED Maxtix 에 data 전달해서 LED 로 표현하기
-
     }
     previousMillis = currentMillis;
 
-// LED 에 날짜, 시간, 기상/미세먼지 정보 output
-      showLED();
+    // LED 에 날짜, 시간, 기상/미세먼지 정보 output
+    // showLED();
+
+
 
     // n회차부터 받을 작동 로그, API data 받기 위한 초기화
     workingLog = "";

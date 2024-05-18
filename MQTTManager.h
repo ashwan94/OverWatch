@@ -34,7 +34,7 @@ void reconnect()
   {
     Serial.print("Attempting MQTT connection...");
     // Create a random client ID
-    String clientId = "jimin-";
+    String clientId = "AnSeungHwan";
     clientId += String(random(0xffff), HEX);
 
     // Attempt to connect
@@ -42,9 +42,9 @@ void reconnect()
      {
       Serial.println("connected");
       // Once connected, publish an announcement...
-      pubClient.publish("Overwatch", "It's forecast");
+      pubClient.publish("OverWatchPub", "It's forecast");
       // ... and resubscribe
-      pubClient.subscribe("Overwatch");
+      pubClient.subscribe("OverWatchSub");
     } 
     else 
     {
@@ -60,11 +60,21 @@ void reconnect()
 //여기서 메세지 쏘기
 void publish(String topicStr, String payloadStr)
 {
+  Serial.println("MQTT 로 넘어옴");
+  Serial.println(topicStr);
+  Serial.println(payloadStr);
+
   int topicLength = topicStr.length() + 1;
   int payloadLength = payloadStr.length() + 1;
 
   char *topic = new char[topicLength + 2];
   char *payload = new char[payloadLength + 2];
+
+  Serial.println("뭐가 변환된 값일까?");
+  Serial.println(topic);
+  Serial.println(*topic);
+  Serial.println(payload);
+  Serial.println(*payload);
   
   topicStr.toCharArray(topic, topicLength);
   payloadStr.toCharArray(payload, payloadLength);

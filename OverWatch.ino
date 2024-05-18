@@ -7,8 +7,8 @@
 void setMQTT();
 
 // WiFi 접속을 위한 세팅
-const char* ssid = "next1";            // WiFi 이름
-const char* password = "next18850";  // WiFi 비밀번호
+const char* ssid = "AN";          // WiFi 이름
+const char* password = "49920038";  // WiFi 비밀번호
 
 // UTC data 받기 위한 세팅
 char curTime[20];
@@ -61,7 +61,7 @@ void setup() {
   Serial.begin(115200);
   WiFi.begin(ssid, password);
   Serial.println();
-  Serial.println("WiFI 연결 확인");
+  Serial.println("WiFI 연결 요청");
 
   // WiFi 연결될때까지 시도
   while (WiFi.status() != WL_CONNECTED) {
@@ -77,6 +77,9 @@ void setup() {
   while (!time(nullptr)) delay(500);
 
   Serial.println("시스템 부팅 완료!");
+
+  // MQTT 세팅
+  setupMQTT();
 }
 
 // UTC data 가져오기
@@ -218,7 +221,7 @@ void get_fineDust() {
   }
 }
 
-void showLED(){
+void showLED() {
   Serial.println("LED 에 출력할 data");
   Serial.println("수신된 날짜 data : " + utcDate);
   Serial.println("수신된 시간 data : " + utcTime);
@@ -269,39 +272,76 @@ void loop() {
         && (hour == "00" || hour == "05" || hour == "10" || hour == "15" || hour == "20")) {  // 00, 05, 10, 15, 20시에만 API 호출
       base_time = String("&base_time=") + hour + minute;
       Serial.println("기상청, 에어코리아 API 요청 -> " + hour + "시 " + minute + "분 " + second + "초");
-
       workJson["apiReqTime"] = hour + minute + second;
+
+      // MQTT publish 요청
+      reconnect();
 
       // Open API 요청
       get_weather();
       get_fineDust();
+      showLED();
       serializeJson(workJson, workingLog);
 
       // MQTT publish 를 위한 JSON Array 생성 및 data 저장
-      StaticJsonDocument<200> mqttJsonArray;
-      JsonArray mqttData = mqttJsonArray.to<JsonArray>();
-      mqttData.add(workingLog);
-      mqttData.add(weatherData);
-      mqttData.add(fineDustData);
+      StaticJsonDocument<200> workingLogJson;    // workingLog 를 역직렬화
+      StaticJsonDocument<200> weatherDataJson;   // weatherData 를 역직렬화
+      StaticJsonDocument<200> fineDustDataJson;  // fineDust 를 역직렬화
+      StaticJsonDocument<200> mqttJson;          // MQTT 에 전송할 JSON
+      JsonObject wlJson = workingLogJson.to<JsonObject>();
+      JsonObject wdJson = weatherDataJson.to<JsonObject>();
+      JsonObject fdJson = fineDustDataJson.to<JsonObject>();
+      JsonArray mqttData = mqttJson.to<JsonArray>();
 
-      for (String data : mqttData) {
-        Serial.println(data);
+      deserializeJson(wlJson, workingLog);
+      deserializeJson(wdJson, weatherData);
+      deserializeJson(fdJson, fineDustData);
+      mqttData.add(wlJson);
+      mqttData.add(wdJson);
+      mqttData.add(fdJson);
+
+      // Serial.println("조회된 JSON Data");
+      // Serial.println(mqttData);
+
+      // mqttData 내용 확인하기
+      // key 의 개수만큼 for문이 작동한다
+      // for (String data : mqttData) {
+      //   Serial.println(data);
+      // }
+
+      // MQTT server 전송을 위한 Serialization
+      char output[512];
+      serializeJson(mqttData, output);
+      // Serial.println("직렬화 결과값");
+      // Serial.println(output);
+      // Serial.println(strlen(output));  // 직렬화된 data 크기 측정
+
+      // MQTT 로 모든 data 전송
+      if (WiFi.status() == WL_CONNECTED && pubClient.connected()) {
+        String sensorID = "OverWatch";
+        String data = String("{\"sensorID\":\"" + sensorID + "\",\"datas\":" + output + "}");
+        String rootTopic = "/IoT/Sensor/2ndClass/" + sensorID;
+        // Serial.println("퍼블리시 전");
+        // Serial.println(data);
+        // Serial.println(data.length()); // MQTT 로 publish 하고자 하는 data 크기
+                                       // PubSubClient 의 최대 크기는 256 byte 가 기본으로 설정됨
+
+        publish(rootTopic, data);
+
+        // 자원 정리
+        wlJson.clear();
+        wdJson.clear();
+        fdJson.clear();
+        mqttData.clear();
       }
 
-      mqttData.clear();
 
 
       // TODO
-      // 1. MQTT 로 publish
-      // return mqttData;
-
-      // 2. LED Maxtix 에 data 전달해서 LED 로 표현하기
-
+      // 1. LED Maxtix 에 data 전달해서 LED 로 표현하기
+      // 2. 배터리 설치
     }
     previousMillis = currentMillis;
-
-// LED 에 날짜, 시간, 기상/미세먼지 정보 output
-      showLED();
 
     // n회차부터 받을 작동 로그, API data 받기 위한 초기화
     workingLog = "";

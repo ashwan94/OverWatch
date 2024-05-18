@@ -6,8 +6,8 @@ var mqttClient= null;
 // 각자 상황에 맞는 host, port, topic 을 사용합니다.
 const mqtt_host = "nextit.or.kr";
 const mqtt_port = "29001";
-const mqtt_clientId = "Ssamssara" + parseInt(Math.random() * 100);        // 랜덤 클라이언트 ID
-const mqtt_topic = "/IoT/Sensor/#";
+const mqtt_clientId = "OverWatch" + parseInt(Math.random() * 100);        // 랜덤 클라이언트 ID
+const mqtt_topic = "/IoT/Sensor/2ndClass/OverWatch";
 
 // MQTT 클라이언트 연결
 function StartMqtt()
@@ -54,25 +54,18 @@ function onConnectionLost(responseObject)
 function onMessageArrived(message)
 {
     console.log(mqtt_clientId + " is onMessageArrived");
-    const received_data = JSON.parse(message.payloadString);
-    console.log(received_data);
+    const received_data = JSON.parse(message.payloadString); // JSON Parsing
+    // console.log("받은 data : ", received_data);
 
-    const temp = received_data.temp;
-    console.log("온도 : " + temp);
-    const hum = received_data.hum;
-    console.log("습도 : " + hum);
-    // const create_date = received_data.create_date;
-    // console.log("생성일 : " + create_date);
-
-
-    addData(myChart, temp, hum);
+    // HTML 의 function 으로 parameter 넘기기
+    addData(received_data);
 }
 
 
 
 // 메시지 보내기
 // 각 화면에서 메시지를 보내려면 각 화면에서 아래 function 선언하여 사용
-function fncMqttDoSend(sendMsg)
+function fncMqttDoSend(data)
 {
-    mqttClient.send(mqtt_topic, sendMsg);
+    mqttClient.send(mqtt_topic, data);
 }

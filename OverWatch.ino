@@ -61,7 +61,7 @@ void setup() {
   Serial.begin(115200);
   WiFi.begin(ssid, password);
   Serial.println();
-  Serial.println("WiFI 연결 확인");
+  Serial.println("WiFI 연결 요청");
 
   // WiFi 연결될때까지 시도
   while (WiFi.status() != WL_CONNECTED) {
@@ -77,6 +77,9 @@ void setup() {
   while (!time(nullptr)) delay(500);
 
   Serial.println("시스템 부팅 완료!");
+
+  // MQTT 세팅
+  setupMQTT();
 }
 
 // UTC data 가져오기
@@ -111,6 +114,8 @@ void get_weather() {
     Serial.print("weather HTTP 응답 결과 : ");
     Serial.println(httpCode);
     workJson["weatherHttpResp"] = httpCode;
+    workJson["weatherLocation"]["nx"] = nx.substring(4, 6);  // weather data 의 location 정보 저장
+    workJson["weatherLocation"]["ny"] = ny.substring(4, 7);
 
     DynamicJsonDocument apiData(13000);          // 초단기예보 전체 API Data 가져올 동적 JSON 선언(초단기예보 API 는 12288 bytes 이므로 여유롭게 13000으로 크기 지정)
     StaticJsonDocument<200> stkMemory;           // MQTT 에 publish 할 필터링된 API Data 를 담을 정적 JSON 선언
@@ -122,31 +127,49 @@ void get_weather() {
 
       if (!error) {
         const JsonArray item = apiData["response"]["body"]["items"]["item"];
+        // Serial.println("조회된 item");
+        // for(String j : item){
+        //   Serial.println(j);
+        // }
+        StaticJsonDocument<200> parseData;
+        JsonArray ja = parseData.to<JsonArray>();
 
-        for (int i = 0; i < sizeof(item); i++) {
-          if (i == 5 || i % 6 == 5) {
+        for (int i = 0; i < item.size(); i++) {
+          if (i == 5 || i % 6 == 5 && i <= 35) {
             // base_date 로부터 5시간 30분 이후의 값만 필터링
             // 초단기예보는 기준시간으로부터 6시간 data 만 갖고 있음
             // 단기예보는 초단기예보로부터 모레까지 data 를 갖고 있음
             // 아침에 저녁 일기예보를 조회하려면 초단기예보가 아니라 단기예보 data 가 무조건 필요
 
             // API 로 받은 JSON 필터링된 data 들
-            jo["base_date"] = item[i]["baseDate"].as<String>();   // bsd
-            jo["base_time"] = item[i]["baseTime"].as<String>();   // bst
-            jo["cagegory"] = item[i]["category"].as<String>();    // cgr
-            jo["fcst_date"] = item[i]["fcstDate"].as<String>();   // fcd
-            jo["fcst_time"] = item[i]["fcstTime"].as<String>();   // fct
-            jo["fcstValue"] = item[i]["fcstValue"].as<String>();  // fcv
-            jo["nx"] = item[i]["nx"].as<String>();                // nxv
-            jo["ny"] = item[i]["ny"].as<String>();                // nyv
+            // jo["base_date"] = item[i]["baseDate"].as<String>();   // data 요청 날짜
+            // jo["base_time"] = item[i]["baseTime"].as<String>();   // data 요청 시간
+            jo["category"] = item[i]["category"].as<String>();    // 카테고리
+            jo["fcstValue"] = item[i]["fcstValue"].as<String>();  // 카테고리별 상태 값
+            // jo["fcst_date"] = item[i]["fcstDate"].as<String>();   // 예보 날짜
+            // jo["fcst_time"] = item[i]["fcstTime"].as<String>();   // 예보 시간
+            // jo["nx"] = item[i]["nx"].as<String>();                // 경도
+            // jo["ny"] = item[i]["ny"].as<String>();                // 위도
+            ja.add(jo);
           }
         }
+        StaticJsonDocument<200> sendData;
+        JsonObject j = sendData.to<JsonObject>();
+        j["weather"] = ja;
+
+        // Serial.println("필터링된 날씨 데이터");
+        // for (String data : ja) {
+        //   Serial.println(data);
+        // }
+
         // 필터링 끝난 API data 를 String 에 Call by value
         // Array, JsonArray 는 얕은 복사이기 때문에 원본 값의 변화에 직접적으로 영향을 받는다
-        serializeJson(jo, weatherData);  // JsonObject 에 담긴 data 를 직렬화해서 String 인 weatherData 에 담음(깊은 복사)
+        serializeJson(j, weatherData);  // JsonObject 에 담긴 data 를 직렬화해서 String 인 weatherData 에 담음(깊은 복사)
 
         stkMemory.clear();
         apiData.clear();
+        parseData.clear();
+        sendData.clear();
 
         // ---------- MQTT 로 전송할 기상청 초단기예보 Data 수집 끝 ------------
 
@@ -180,7 +203,7 @@ void get_fineDust() {
     int httpCode = http.GET();  // GET 방식으로 요청
     Serial.print("fineDust HTTP 응답 결과 : ");
     Serial.println(httpCode);
-    workJson["fineDusthttpResp"] = httpCode;
+    workJson["fineDustHttpResp"] = httpCode;
 
     DynamicJsonDocument apiData(6500);           // API data 크기가 약 6,200 이므로 여유롭게 6,500 으로 설정
     StaticJsonDocument<200> stkMemory;           // MQTT 에 publish 할 필터링된 API Data 를 담을 정적 JSON 선언
@@ -208,22 +231,27 @@ void get_fineDust() {
         // ---------- MQTT 로 전송할 에어코리아 미세먼지 Data 수집 끝 ------------
 
       } else {
-        // API GET 에러 발생 시 될떄까지 재시도
-        Serial.println("Error on HTTP request to FineDust API Data");
-        Serial.println("Server 에 재요청을 시도합니다.");
+        // JSON Parsing 성공할때까지 재시도
+        Serial.print(F("deserializeJson() failed: "));
+        Serial.println(error.c_str());
         get_fineDust();
       }
-      http.end();  // http 자원 정리
+    } else {
+      // API GET 에러 발생 시 될떄까지 재시도
+      Serial.println("Error on HTTP request to FineDust API Data");
+      Serial.println("Server 에 재요청을 시도합니다.");
+      get_fineDust();
     }
+    http.end();  // http 자원 정리
   }
 }
 
-void showLED(){
-  Serial.println("LED 에 출력할 data");
-  Serial.println("수신된 날짜 data : " + utcDate);
-  Serial.println("수신된 시간 data : " + utcTime);
-  Serial.println("수신된 날씨 data : " + weatherData);
-  Serial.println("수신된 미세먼지 data : " + fineDustData);
+void showLED() {
+  // Serial.println("LED 에 출력할 data");
+  // Serial.println("수신된 날짜 data : " + utcDate);
+  // Serial.println("수신된 시간 data : " + utcTime);
+  // Serial.println("수신된 날씨 data : " + weatherData);
+  // Serial.println("수신된 미세먼지 data : " + fineDustData);
 }
 
 void loop() {
@@ -265,43 +293,82 @@ void loop() {
     // 00:31 에 시도했더니 null 값으로 return 된다. 00:33 으로 하니 해결됨
     // + 미세먼지는 1일 기준이므로 기상청 API 를 요청할때 1번만 data 를 가져오도록 함
     if (second == "30"
-        && minute == "31"
-        && (hour == "00" || hour == "05" || hour == "10" || hour == "15" || hour == "20")) {  // 00, 05, 10, 15, 20시에만 API 호출
+        && minute == "31") {  // 00, 05, 10, 15, 20시에만 API 호출
+        //  && (hour == "00" || hour == "05" || hour == "10" || hour == "15" || hour == "20") // 테스트 후 갖다붙이기
       base_time = String("&base_time=") + hour + minute;
       Serial.println("기상청, 에어코리아 API 요청 -> " + hour + "시 " + minute + "분 " + second + "초");
-
       workJson["apiReqTime"] = hour + minute + second;
+
+      // MQTT publish 요청
+      reconnect();
 
       // Open API 요청
       get_weather();
       get_fineDust();
+      showLED(); // 실시간, 기상/미세먼지 정보 전달
       serializeJson(workJson, workingLog);
 
       // MQTT publish 를 위한 JSON Array 생성 및 data 저장
-      StaticJsonDocument<200> mqttJsonArray;
-      JsonArray mqttData = mqttJsonArray.to<JsonArray>();
-      mqttData.add(workingLog);
-      mqttData.add(weatherData);
-      mqttData.add(fineDustData);
+      StaticJsonDocument<200> workingLogJson;    // workingLog 를 역직렬화
+      StaticJsonDocument<200> weatherDataJson;   // weatherData 를 역직렬화
+      StaticJsonDocument<200> fineDustDataJson;  // fineDust 를 역직렬화
+      StaticJsonDocument<200> mqttJson;          // MQTT 에 전송할 JSON
+      JsonObject wlJson = workingLogJson.to<JsonObject>();
+      JsonObject wdJson = weatherDataJson.to<JsonObject>();
+      JsonObject fdJson = fineDustDataJson.to<JsonObject>();
+      JsonArray mqttData = mqttJson.to<JsonArray>();
 
-      for (String data : mqttData) {
-        Serial.println(data);
+      deserializeJson(wlJson, workingLog);
+      deserializeJson(wdJson, weatherData);
+      deserializeJson(fdJson, fineDustData);
+      mqttData.add(wlJson);
+      mqttData.add(wdJson);
+      mqttData.add(fdJson);
+
+      // Serial.println("조회된 JSON Data");
+      // Serial.println(mqttData);
+
+      // mqttData 내용 확인하기
+      // key 의 개수만큼 for문이 작동한다
+      // for (String data : mqttData) {
+      //   Serial.println(data);
+      // }
+
+      // MQTT server 전송을 위한 Serialization
+      char output[512];
+      serializeJson(mqttData, output);
+      // Serial.println("직렬화 결과값");
+      // Serial.println(output);
+      // Serial.println(strlen(output));  // 직렬화된 data 크기 측정
+
+      // MQTT 로 모든 data 전송
+      if (WiFi.status() == WL_CONNECTED && pubClient.connected()) {
+        String sensorID = "OverWatch";
+        String data = String("{\"sensorID\":\"" + sensorID + "\",\"datas\":" + output + "}");
+        String rootTopic = "/IoT/Sensor/2ndClass/" + sensorID;
+        Serial.print("Publishing data size : ");
+        // Serial.println(data);
+        Serial.println(data.length());  // MQTT 로 publish 하고자 하는 data 크기
+        // PubSubClient 의 최대 크기는 256 byte 가 기본으로 설정됨
+
+        publish(rootTopic, data);
+
+        // 자원 정리
+        wlJson.clear();
+        wdJson.clear();
+        fdJson.clear();
+        mqttData.clear();
       }
 
-      mqttData.clear();
 
 
       // TODO
-      // 1. MQTT 로 publish
-      // return mqttData;
-
-      // 2. LED Maxtix 에 data 전달해서 LED 로 표현하기
-
+      // 1. LED Maxtix 에 data 전달해서 LED 로 표현하기
+      // 2. 배터리 설치
     }
     previousMillis = currentMillis;
 
-// LED 에 날짜, 시간, 기상/미세먼지 정보 output
-      showLED();
+    // showLED();
 
     // n회차부터 받을 작동 로그, API data 받기 위한 초기화
     workingLog = "";

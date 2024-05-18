@@ -1,109 +1,127 @@
 <!DOCTYPE html>
 <html lang="kr" xmlns:th="http://www.thymeleaf.org">
-<head>
-    <meta charset="UTF-8">
-    <link rel="stylesheet" th:href="@{/css/common.css}" type="text/css">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" th:href="@{/css/common.css}" type="text/css" />
 
-    <title>Ssamssara Status Monitor</title>
+    <title>OverWatch Status Monitor</title>
+    <style>
+      label {
+        display: block;
+        margin: 10px;
+      }
+    </style>
+    <script
+      src="https://code.jquery.com/jquery-3.7.0.js"
+      integrity="sha256-JlqSTELeR4TLqP0OG9dxM7yDPqX1ox/HfgiSLBj8+kM="
+      crossorigin="anonymous"
+    ></script>
 
-
-    <script src="https://code.jquery.com/jquery-3.7.0.js"
-            integrity="sha256-JlqSTELeR4TLqP0OG9dxM7yDPqX1ox/HfgiSLBj8+kM="
-            crossorigin="anonymous">
-
-    </script>
-
-    <script type="text/javascript"
-            src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.2/mqttws31.js">
-
-    </script>
+    <script
+      type="text/javascript"
+      src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.2/mqttws31.js"
+    ></script>
     <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script> -->
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-
     <script src="./mqtt.js"></script>
+
     <script>
-        let myChart = null;
+      $(document).ready(function () {
+        console.log("ready!");
+        StartMqtt();
+      });
+    </script>
+  </head>
+  <body>
+    <header th:insert="~{common/header.html}"></header>
+    <h1>시계 그 이상의 가치, OverWatch</h1>
 
-        document.addEventListener("DOMContentLoaded", function ()
-        {
-            const labelList = [
-                "init"
-            ];
+    <form>
+      <label
+        >작동 로그
+        <textarea
+          type="text"
+          id="workingLog"
+          rows="10"
+          cols="40"
+          readonly
+        ></textarea>
+      </label>
+      <label
+        >날씨 Data
+        <textarea
+          type="text"
+          id="weatherData"
+          rows="10"
+          cols="40"
+          readonly
+        ></textarea>
+      </label>
+      <label
+        >미세먼지 Data
+        <textarea
+          type="text"
+          id="fineDustData"
+          rows="10"
+          cols="40"
+          readonly
+        ></textarea>
+      </label>
+    </form>
+    <div style="margin-top: 30px; border: 2px solid">
+      <div>
+        기상청 API<br />
+        - 하늘상태(SKY) 코드 : 맑음(1), 구름많음(3), 흐림(4)<br />
+        - 강수형태(PTY) 코드 : (초단기) 없음(0), 비(1), 비/눈(2), 눈(3),
+        빗방울(5), 빗방울눈날림(6), 눈날림(7)
+      </div>
+      <br />
+      <div>
+        에어코리아 API<br />
+        - 항목별 Grade 값의 의미<br />
+        - Grade ---> 1(좋음), 2(보통), 3(나쁨), 4(매우 나쁨)
+      </div>
+    </div>
 
-            const dataList = [
-                0
-            ];
+    <footer th:insert="~{common/footer.html}"></footer>
+    <script>
+      const workingLog = document.querySelector("#workingLog");
+      const weatherData = document.querySelector("#weatherData");
+      const fineDustData = document.querySelector("#fineDustData");
 
-            const dataConfig = {
-                labels: labelList,
-                datasets: [{
-                    label: '대기온도',
-                    backgroundColor: 'rgb(255, 0, 0)',
-                    borderColor: 'rgb(255, 0, 0)',
-                    data: dataList
-                }]
-            };
+      // MQTT Subscribe JSON Data Parsing
+      function addData(jsonData) {
+        console.log("수신 : ", jsonData);
+        if (jsonData != undefined) {
+          // ---------- workingLog data 표시하기 ------------
+          workingLog.innerText = `API 요청일 : ${jsonData.datas[0].apiReqDate}\
+                                API 요청 시간 : ${jsonData.datas[0].apiReqTime}\
+                                기상청 API 응답코드 : ${jsonData.datas[0].weatherHttpResp}\
+                                기상청 API Location x, y : ${jsonData.datas[0].weatherLocation.nx}, ${jsonData.datas[0].weatherLocation.ny}\
+                                에어코리아 API 응답코드 : ${jsonData.datas[0].fineDustHttpResp}`;
 
-            const config = {
-                type: 'line',
-                data: dataConfig,
-                options: {
-                    responsive: false,
-                    scale: {
-                        beginAtZero: false,
-                        max: 50,
-                        stepSize: 1,
-                    }
-                }
-            };
+          // ------------ 기상 data 표시하기 ------------
+          weatherData.innerText = `${jsonData.datas[1].weather[0].category}(낙뢰) : ${jsonData.datas[1].weather[0].fcstValue}\
+                                   ${jsonData.datas[1].weather[1].category}(강수형태) : ${jsonData.datas[1].weather[1].fcstValue}\
+                                   ${jsonData.datas[1].weather[3].category}(하늘상태) : ${jsonData.datas[1].weather[3].fcstValue}\
+                                   ${jsonData.datas[1].weather[4].category}(온도) : ${jsonData.datas[1].weather[4].fcstValue}\
+                                   ${jsonData.datas[1].weather[5].category}(습도) : ${jsonData.datas[1].weather[5].fcstValue}`;
 
-
-            const chartCanvas = document.getElementById('myChart');
-
-
-            myChart = new Chart(
-                chartCanvas,
-                config
-            );
-
-            
-        });
-        
-
-        function addData(chartArea, temp, labelData)
-        {
-            const dataList = chartArea.data;
-            const labelList = chartArea.data.labels;
-
-            if (dataList.datasets[0].data.length > 50)
-            {
-                dataList.datasets[0].data.shift();
-                labelList.shift();
-            }
-            labelList.push(temp);
-            dataList.datasets[0].data.push(temp);
-
-            chartArea.update();
+          // ------------ 미세먼지 data 표시하기 ------------
+          fineDustData.innerText = `도시명 : ${jsonData.datas[2].sidoName}\
+                                    지역명 : ${jsonData.datas[2].stationName}\
+                                    요청일 : ${jsonData.datas[2].dataTime}\
+                                    통합대기지수 : ${jsonData.datas[2].khaiGrade}\
+                                    미세먼지 등급 : ${jsonData.datas[2].pm10Grade}\
+                                    초미세먼지 등급 : ${jsonData.datas[2].pm25Grade}`;
+          return;
+        } else {
+          console.log("MQTT로부터 수신된 Data : ", jsonData);
+          return;
         }
+      }
     </script>
-    <script>
-
-        $( document ).ready(function() {
-            console.log( "ready!" );
-            StartMqtt();
-        });
-    </script>
-</head>
-<body>
-<header th:insert="~{common/header.html}"></header>
-<h1>Ssamssara 모니터링</h1>
-
-<div>
-    <canvas id="myChart" width="1000" height="400"></canvas>
-</div>
-
-<footer th:insert="~{common/footer.html}"></footer>
-</body>
+  </body>
 </html>
